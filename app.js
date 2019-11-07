@@ -33,7 +33,7 @@ const actions = {
 };
 
 app.get('/', (req, res) => {
-    res.status(200).send('/yt-player.html?channel=username');
+    res.status(200).send('/yt-player.html?channel=username<br />username = your twitch channel');
 });
 
 if (module === require.main) {
