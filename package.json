@@ -1,17 +1,18 @@
 {
-  "name": "basic-bot",
-  "version": "1.0.0",
-  "description": "Twitch Bot Boilerplate",
-  "main": "app.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "author": "Jones S. Cropper",
-  "license": "ISC",
-  "dependencies": {
-    "dotenv": "^7.0.0",
-    "express": "^4.17.1",
-    "socket.io": "^2.3.0",
-    "tmi.js": "^1.4.2"
-  }
+    "name": "youtube-player-bot",
+    "version": "1.0.0",
+    "description": "Overlay for broadcasting software that allows streamers to show YouTube videos in the overlay from song requests commands via Twitch chat.",
+    "main": "app.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "start": "node app.js"
+    },
+    "author": "caLLowCreation",
+    "license": "ISC",
+    "dependencies": {
+        "dotenv": "^7.0.0",
+        "express": "^4.17.1",
+        "socket.io": "^2.3.0",
+        "tmi.js": "^1.4.2"
+    }
 }
