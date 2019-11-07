@@ -1,0 +1,210 @@
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>YT Player</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-3.2.1.min.js"
+        integrity="sha256-hwg4gsxgFZhOsEEamdOYGBf13FyQuiTwlAQgxVSNgt4=" crossorigin="anonymous"></script>
+</head>
+
+<body style="background-color: transparent">
+    <div id="youtube-player" style="display: none;"></div>
+</body>
+<script>
+    'use strict';
+
+    const socket = io.connect();
+
+    const NORMALIZE_VOLUME = 1.0;//0.25;
+
+    const player = {
+        jdiv: null,
+        controller: null,
+        channel: null
+    };
+
+    const onEvent = {
+        'connect': onConnect,
+        "disconnect": onDisconnect,
+
+        'youtube-player-ready': playerReady, //
+        'youtube-player-play': playerPlay, //
+        'youtube-player-stop-hide': playerStopHide, //
+        'youtube-player-volume': playerVolume,
+        'youtube-player-seek': playerSeek,
+        'youtube-player-is-player-playing': playerIsPlayerPlaying, //
+        'youtube-player-try-play-next': playerTryPlayNext,
+        'youtube-player-play-action': playerPlayAction,
+        'youtube-player-pause-action': playerPauseAction,
+        'youtube-player-watch': playerWatch,
+        'youtube-player-video-exists': (videoId) => {
+
+        }
+    };
+
+    const emitEvent = {
+        READY: 'youtube-player-ready',
+        ENDED: 'youtube-player-ended',
+        SEEK: 'youtube-player-seek',
+        IS_PLAYING: 'youtube-player-is-player-playing',
+        NEXT: 'youtube-player-try-play-next',
+        PLAY: 'youtube-player-play-action',
+        PAUSE: 'youtube-player-pause-action'
+    };
+
+    for (let eve in onEvent) {
+        socket.on(eve, onEvent[eve]);
+    }
+
+    // Load the IFrame Player API code asynchronously.
+    const tag = document.createElement('script');
+    tag.src = "https://www.youtube.com/player_api";
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+    // Replace the 'youtube-player' element with an <iframe> and
+    // YouTube player after the API code downloads.
+    function onYouTubePlayerAPIReady() {
+        player.controller = new YT.Player('youtube-player', {
+            width: '400',
+            height: '225',
+            videoId: 'zz6BaNiPkgY',
+            events: {
+                'onReady': onPlayerReady,
+                'onStateChange': onPlayerStateChange
+            }
+        });
+    }
+
+    function playerWatch(data) {
+        fadePlayer(data, 1, 2);
+    }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    function onPlayerReady(event) {
+        player.controller = event.target;
+        player.jdiv = $('#youtube-player');
+        playerStopHide();
+
+        player.channel = urlParams.get('channel');
+
+        socket.emit(emitEvent.READY, player);
+    }
+
+    function onPlayerStateChange(event) {
+        if (player.controller.getPlayerState() === YT.PlayerState.PLAYING) {
+            if (player.controller.isMuted()) {
+                player.controller.unMute();
+            }
+        } else if (player.controller.getPlayerState() === YT.PlayerState.ENDED) {
+            player.jdiv.hide();
+            socket.emit(emitEvent.ENDED, player);
+        }
+    }
+
+    function playerReady({ channel }) {
+        if (player.controller) {
+            player.channel = channel;
+            socket.emit(emitEvent.READY, player);
+        }
+    }
+
+    function playerPlay({ parameters, quality, volume, watch }) {
+        player.jdiv.animate({ 'opacity': '1.0' }, 1000 * 1);
+
+        player.jdiv.show();
+        player.controller.setPlaybackQuality(quality);
+        player.controller.loadVideoById({
+            videoId: parameters.videoId
+        });
+        player.controller.playVideo();
+
+        playerVolume({ volume });
+
+        fadePlayer({ watch }, 5, 10);
+    }
+
+    function playerVolume({ volume }) {
+        player.controller.setVolume(volume * NORMALIZE_VOLUME);
+    }
+
+    function playerSeek(options) {
+        if (options.seek_move === true) {
+            const seconds = options.position_ms / 1000;
+            player.controller.seekTo(seconds, true);
+        }
+
+        setTimeout(() => {
+            socket.emit(emitEvent.SEEK, msTimes());
+        }, 250);
+    }
+
+    function playerStopHide() {
+        player.controller.stopVideo();
+        player.jdiv.hide();
+    }
+
+    function playerIsPlayerPlaying() {
+        socket.emit(emitEvent.IS_PLAYING, isPlaying());
+    }
+
+    function playerTryPlayNext() {
+        socket.emit(emitEvent.NEXT, msTimes());
+    }
+
+    function playerPlayAction() {
+        player.jdiv.show();
+        player.controller.playVideo();
+        socket.emit(emitEvent.PLAY, msTimes());
+    }
+
+    function playerPauseAction() {
+        player.jdiv.show();
+        player.controller.pauseVideo();
+        socket.emit(emitEvent.PAUSE, msTimes());
+    }
+
+    function fadePlayer({ watch }, delaySecs, animateSecs) {
+        setTimeout(() => {
+            player.jdiv.animate({ 'opacity': watch ? '1.0' : '0.01' }, 1000 * animateSecs);
+        }, 1000 * delaySecs);
+    }
+
+    function isPlaying() {
+        return {
+            is_playing: (player.controller.getPlayerState() !== YT.PlayerState.ENDED && (player.jdiv.not(':hidden').length === YT.PlayerState.PLAYING))
+        };
+    }
+
+    function msTimes() {
+        let duration = 0;
+        let position = 0;
+        let remaining = 0;
+        try {
+            duration = player.controller.getDuration();
+            position = player.controller.getCurrentTime();
+            remaining = duration - position;
+        } catch (error) {
+            duration = 0;
+            position = 0;
+            remaining = 0;
+        }
+        return {
+            duration_ms: duration * 1000,
+            position_ms: position * 1000,
+            remaining_ms: remaining * 1000,
+            is_playing: player.controller.getPlayerState() === YT.PlayerState.PLAYING
+        }
+    }
+
+    function onConnect() {
+        console.log("client Connected to server");
+    }
+
+    function onDisconnect() {
+        console.log("client disconnected from server");
+    }
+</script>
+
+</html>
