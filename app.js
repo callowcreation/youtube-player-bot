@@ -1,13 +1,12 @@
 require('dotenv').config();
 const tmi = require('tmi.js');
 const express = require('express');
-const JsonFile = require('./utils/json-file');
 
 const app = express();
 app.use(express.static('public'));
 
-const channels = {};
-const connection = {};
+const playlists = {};
+const sockets = {};
 
 const client = new tmi.client({
     identity: {
@@ -19,7 +18,7 @@ const client = new tmi.client({
 
 
 const actions = {
-    stop: async ({ channel }) => connection[channel].emit('youtube-player-stop-hide'),
+    stop: async ({ channel }) => sockets[channel].emit('youtube-player-stop-hide'),
     next: async ({ channel }) => playFromQueue({ channel }),
     add: async ({ channel, context, videoId }) => {
         addToQueue({ channel }, {
@@ -34,7 +33,7 @@ const actions = {
 };
 
 app.get('/', (req, res) => {
-    res.status(200).send('Hello, World!');
+    res.status(200).send('/yt-player.html?channel=username');
 });
 
 if (module === require.main) {
@@ -47,21 +46,21 @@ if (module === require.main) {
         const target = socket.handshake.headers.referer.split('?')[1];
         if (target) {
             const channel = target.split('=')[1];
-            channels[channel] = new JsonFile(`./data/${channel}-playlist.json`, []);
-            connection[channel] = socket;
+            playlists[channel] = [];
+            sockets[channel] = socket;
 
             console.log({ message: 'yt connected', channel });
 
-            connection[channel].on('youtube-player-ready', onReadyYouTubePlayer);
-            connection[channel].on('youtube-player-ended', onEndedYouTubePlayer);
+            sockets[channel].on('youtube-player-ready', onReadyYouTubePlayer);
+            sockets[channel].on('youtube-player-ended', onEndedYouTubePlayer);
 
-            connection[channel].emit('youtube-player-ready', { channel });
+            sockets[channel].emit('youtube-player-ready', { channel });
 
-            connection[channel].on('disconnect', async (reason) => {
+            sockets[channel].on('disconnect', async (reason) => {
                 console.log({ message: 'yt disconnect', channel }, reason);
                 await removeListeners(channel);
             });
-            connection[channel].on('error', async (error) => {
+            sockets[channel].on('error', async (error) => {
                 console.log({ message: 'yt error', channel }, error);
                 await removeListeners(channel);
             });
@@ -75,7 +74,7 @@ if (module === require.main) {
     client.connect()
         .then(connected => {
             console.log({ message: 'irc connected' }, connected);
-            server.listen(process.env.PORT || 9000, async () => {
+            server.listen(process.env.PORT || 5000, async () => {
                 const port = server.address().port;
                 console.log({ message: `App listening on port ${port}` });
             });
@@ -86,7 +85,7 @@ async function onMessageHandler(channel, context, msg, self) {
     channel = channel.replace('#', '');
 
     if (self) return;
-    if (!connection[channel]) return;
+    if (!sockets[channel]) return;
 
     const parts = msg.split(' ');
     const commandName = parts[0];
@@ -128,12 +127,12 @@ async function onReadyYouTubePlayer({ channel }) {
 
 function onEndedYouTubePlayer({ channel }) {
     console.log({ message: 'youtube-player-ended', channel });
-    playFromQueue(channels[channel]);
+    playFromQueue(playlists[channel]);
 }
 
 async function removeListeners(channel) {
-    connection[channel].removeListener('youtube-player-ready', onReadyYouTubePlayer);
-    connection[channel].removeListener('youtube-player-ended', onEndedYouTubePlayer);
+    sockets[channel].removeListener('youtube-player-ready', onReadyYouTubePlayer);
+    sockets[channel].removeListener('youtube-player-ended', onEndedYouTubePlayer);
     console.log({ message: 'yt removeListeners', channel });
 
     if (client.readyState() === 'OPEN') {
@@ -144,10 +143,10 @@ async function removeListeners(channel) {
 
 async function isPlayerPlaying({ channel }) {
     return new Promise(async (resolve, reject) => {
-        connection[channel].once('youtube-player-is-player-playing', (data) => {
+        sockets[channel].once('youtube-player-is-player-playing', (data) => {
             resolve(data);
         });
-        connection[channel].emit('youtube-player-is-player-playing');
+        sockets[channel].emit('youtube-player-is-player-playing');
         await wait_ms(500);
         reject({ message: 'Timeout YT Player not responding' });
     });
@@ -158,22 +157,19 @@ async function wait_ms(milliseconds) {
 }
 
 function playFromQueue({ channel }) {
-    const playlist = channels[channel];
-    if (playlist.getValues().length > 0) {
-        const items = playlist.getValues();
+    const items = playlists[channel];
+    if (items.length > 0) {
         console.log({ message: `Now playing queued videoId ${items[0].videoId}`, channel });
         sendVideoParamsToPlayer({ channel }, items.shift());
-        playlist.setValues(items);
+        playlists[channel] = items;
     }
 }
 
 function addToQueue({ channel }, { userId, videoId }) {
-    const playlist = channels[channel];
-    playlist.data.push({
+    playlists[channel].push({
         userId: userId,
         videoId: videoId
     });
-    playlist.setValues(playlist.data);
     console.log({ message: `Added ${videoId}`, channel });
 }
 
@@ -185,7 +181,7 @@ function sendVideoParamsToPlayer({ channel }, { videoId }) {
     const volume = 10;
     const watch = true;
 
-    connection[channel].emit('youtube-player-play', { parameters, quality, volume, watch });
+    sockets[channel].emit('youtube-player-play', { parameters, quality, volume, watch });
 }
 
 async function onConnectedHandler(addr, port) {
